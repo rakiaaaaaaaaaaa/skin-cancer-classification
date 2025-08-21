@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Skin Cancer Predictor — Demo UI</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#9aa4b2;--accent:#7dd3fc;--glass: rgba(255,255,255,0.03)}
+    html,body{height:100%;margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial}
+    body{background:linear-gradient(180deg,#041025 0%, #071226 100%);color:#e6eef6;padding:28px;box-sizing:border-box}
+    .app{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:420px 1fr;gap:24px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:12px;padding:18px;box-shadow:0 6px 18px rgba(2,6,23,0.6);border:1px solid rgba(255,255,255,0.03)}
+    h1{font-size:20px;margin:0 0 8px}
+    p.lead{color:var(--muted);margin:0 0 14px}
+    .upload{border:2px dashed rgba(125,211,252,0.12);border-radius:10px;padding:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:var(--glass)}
+    .upload input{display:none}
+    .btn{background:transparent;border:1px solid rgba(125,211,252,0.14);padding:8px 12px;border-radius:8px;color:var(--accent);cursor:pointer}
+    .preview{width:320px;height:240px;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.02));border:1px solid rgba(255,255,255,0.02)}
+    .preview img{max-width:100%;max-height:100%;object-fit:cover}
+    .right{display:flex;flex-direction:column;gap:18px}
+    .result{display:flex;gap:14px;align-items:center}
+    .score{flex:1}
+    .progress{height:12px;border-radius:8px;background:rgba(255,255,255,0.06);overflow:hidden}
+    .bar{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),#60a5fa);transition:width .6s ease}
+    .small{font-size:13px;color:var(--muted)}
+    .spinner{border:3px solid rgba(255,255,255,0.05);border-top:3px solid var(--accent);border-radius:50%;width:20px;height:20px;animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    @media(max-width:980px){.app{grid-template-columns:1fr}.preview{width:100%;height:200px}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="card">
+      <h1>Skin Cancer Predictor</h1>
+      <p class="lead">Upload a dermatoscopic image and get model predictions. This UI sends the image to your prediction API and visualizes class probabilities.</p>
+
+      <div class="upload" id="uploadArea">
+        <label for="fileInput" style="cursor:pointer">
+          <div><strong>Click to upload</strong><span class="small"> or drag & drop an image</span></div>
+        </label>
+        <input id="fileInput" type="file" accept="image/*" />
+        <div class="preview" id="preview"> <span class="small">No image selected</span> </div>
+
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button id="predictBtn" class="btn">Predict</button>
+          <button id="clearBtn" class="btn" style="opacity:.7">Clear</button>
+          <div id="status" style="margin-left:8px"></div>
+        </div>
+
+        <div class="small" style="margin-top:8px">Model endpoint: <code id="apiUrl">/predict</code></div>
+      </div>
+
+      <div style="margin-top:14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><strong>Top prediction</strong><span id="confidenceText" class="small">—</span></div>
+        <div class="result">
+          <div class="score">
+            <div class="progress"><div class="bar" id="topBar"></div></div>
+          </div>
+          <div style="width:160px;text-align:right"><strong id="topLabel">—</strong></div>
+        </div>
+
+        <div style="margin-top:12px"><strong>All probabilities</strong></div>
+        <div id="probList" style="margin-top:8px"></div>
+      </div>
+    </div>
+
+    <div class="right">
+      <div class="card">
+        <h1>Model Information</h1>
+        <p class="small">This system uses EfficientNetB3 with transfer learning for skin cancer classification.</p>
+        <div style="margin-top:10px">
+          <strong>Classes:</strong> Melanoma, Nevus, Seborrheic Keratosis, Basal Cell Carcinoma, Actinic Keratosis, Benign Keratosis, Dermatofibroma
+        </div>
+      </div>
+
+      <div class="card">
+        <h1>Important Notice</h1>
+        <p style="color:var(--muted);padding-left:16px">This system is for research and educational purposes only. Not intended for clinical diagnosis without proper validation and regulatory approval.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const PREDICT_URL = '/predict';
+    const TARGET_SIZE = 224;
+    const CLASS_NAMES = ["melanoma","nevus","seborrheic_keratosis","basal_cell_carcinoma","actinic_keratosis","benign_keratosis","dermatofibroma"];
+
+    const fileInput = document.getElementById('fileInput');
+    const preview = document.getElementById('preview');
+    const predictBtn = document.getElementById('predictBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const status = document.getElementById('status');
+    const probList = document.getElementById('probList');
+    const topBar = document.getElementById('topBar');
+    const topLabel = document.getElementById('topLabel');
+    const confidenceText = document.getElementById('confidenceText');
+
+    let currentImageDataUrl = null;
+
+    fileInput.addEventListener('change', e=>{const f=e.target.files[0]; if(f) handleFile(f)});
+    clearBtn.addEventListener('click', ()=>{resetUI()});
+    predictBtn.addEventListener('click', async ()=>{
+      if(!currentImageDataUrl){alert('Please upload an image first.');return}
+      await predictImage(currentImageDataUrl);
+    });
+
+    function handleFile(file){
+      if(!file.type.startsWith('image/')){alert('Please upload an image file');return}
+      const reader = new FileReader();
+      reader.onload = function(ev){
+        currentImageDataUrl = ev.target.result;
+        showPreview(currentImageDataUrl);
+      }
+      reader.readAsDataURL(file);
+    }
+
+    function showPreview(dataUrl){
+      preview.innerHTML = '';
+      const img = document.createElement('img'); img.src = dataUrl; preview.appendChild(img);
+    }
+
+    function resetUI(){currentImageDataUrl=null;preview.innerHTML='<span class="small">No image selected</span>';probList.innerHTML='';topBar.style.width='0%';topLabel.textContent='—';confidenceText.textContent='—';status.innerHTML='';}
+
+    async function predictImage(dataUrl){
+      try{
+        status.innerHTML = '<div class="spinner"></div>';
+        predictBtn.disabled = true;
+
+        const res = await fetch(PREDICT_URL, {
+          method:'POST',headers:{'Content-Type':'application/json'},body: JSON.stringify({image:dataUrl})
+        });
+
+        if(!res.ok){
+          const text = await res.text(); throw new Error('Server error: '+text);
+        }
+
+        const json = await res.json();
+        if(!json.predictions) throw new Error('Invalid response format');
+
+        updateResults(json.predictions);
+      }catch(err){
+        console.error(err);
+        alert('Prediction failed: '+err.message);
+      }finally{
+        status.innerHTML='';predictBtn.disabled=false;
+      }
+    }
+
+    function updateResults(predictions){
+      predictions.sort((a,b)=>b.prob - a.prob);
+      probList.innerHTML = '';
+      predictions.forEach(p=>{
+        const row = document.createElement('div'); row.style.display='flex';row.style.justifyContent='space-between';row.style.marginBottom='6px';
+        const label = document.createElement('div'); label.textContent = p.label || 'unknown'; label.style.minWidth='140px';
+        const val = document.createElement('div'); val.textContent = (p.prob*100).toFixed(1)+'%';
+        row.appendChild(label); row.appendChild(val);
+        probList.appendChild(row);
+      });
+      if(predictions.length){
+        const top = predictions[0];
+        topLabel.textContent = top.label;
+        const pct = Math.round(top.prob*100);
+        topBar.style.width = pct+'%';
+        confidenceText.textContent = (top.prob*100).toFixed(1)+'%';
+      }
+    }
+  </script>
+</body>
+</html>
