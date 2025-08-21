@@ -198,3 +198,8 @@ To retrain the model with new data:
 
 
 **Disclaimer**: This system is for research and educational purposes only. Not intended for clinical diagnosis without proper validation and regulatory approval.
+![Uploading Screenshot 2025-08-20 124442.png…]()
+<img width="592" height="192" alt="Screenshot 2025-08-20 124722" src="https://github.com/user-attachments/assets/c2b44353-bb6b-4003-a25d-7d4c30aa730b" />
+![Uploading web.png…]()
+
+
